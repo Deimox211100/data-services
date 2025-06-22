@@ -1,0 +1,7 @@
+.DS_Store
+*.pyc
+*.env
+
+jupyterhub/jupyterhub_cookie_secret
+jupyterhub/jupyterhub.sqlite
+jupyterhub/jupyterhub-proxy.pid

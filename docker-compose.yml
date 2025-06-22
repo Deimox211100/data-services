@@ -1,0 +1,123 @@
+services:
+
+  # PostgreSQL para Airflow
+  postgres:
+    image: postgres:15
+    container_name: postgres_airflow
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_airflow:/var/lib/postgresql/data
+    networks:
+      - data-platform
+
+  # Airflow Webserver
+  airflow-webserver:
+    image: apache/airflow:2.9.1
+    container_name: airflow-webserver
+    depends_on:
+      - postgres
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+      AIRFLOW__CORE__ENABLE_XCOM_PICKLING: 'true'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./requirements.txt:/requirements.txt
+    ports:
+      - "8082:8080"
+    command: >
+      bash -c "pip install -r /requirements.txt &&
+             airflow db init &&
+             airflow users create --username ${AIRFLOW_USERNAME} --password ${AIRFLOW_PASSWORD} --firstname Air --lastname Flow --role Admin --email admin@example.com &&
+             airflow webserver"
+    networks:
+      - data-platform
+
+  # Airflow Scheduler
+  airflow-scheduler:
+    image: apache/airflow:2.9.1
+    container_name: airflow-scheduler
+    depends_on:
+      - airflow-webserver
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+      AIRFLOW__CORE__ENABLE_XCOM_PICKLING: 'true'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./requirements.txt:/requirements.txt
+    command: >
+      bash -c "pip install -r /requirements.txt && airflow scheduler"
+    networks:
+      - data-platform
+
+  # MinIO
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    env_file: .env
+    ports:
+      - "9001:9000"
+      - "9002:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9002"
+    networks:
+      - data-platform
+
+  # Spark Master
+  spark-master:
+    image: bitnami/spark:latest
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    networks:
+      - data-platform
+
+  # Spark Worker
+  spark-worker:
+    image: bitnami/spark:latest
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=${SPARK_MASTER_URL}
+    ports:
+      - "8083:8081"
+    networks:
+      - data-platform
+
+  # JupyterHub
+  jupyterhub:
+    build:
+      context: ./jupyterhub
+      args:
+        JUPYTERHUB_USER: ${JUPYTERHUB_USER}
+        JUPYTERHUB_PASS: ${JUPYTERHUB_PASS}
+    container_name: jhub
+    env_file: .env
+    ports:
+      - "8888:8000"
+    volumes:
+      - ./jupyterhub:/srv/jupyterhub
+    networks:
+      - data-platform
+
+volumes:
+  postgres_airflow:
+  minio_data:
+
+networks:
+  data-platform:
+    driver: bridge
